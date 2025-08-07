@@ -12,6 +12,7 @@ import org.springframework.ai.chat.messages.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import java.lang.reflect.*;
 import java.util.*;
 
 import static com.ai.agents.orchestrator.node.CodeNode.builder;
@@ -39,21 +40,24 @@ public class WorkFlowTests {
                 .build();
 
 
-        // 1. 用户输入处理节点
-        CodeNode<String, String> inputProcessor = CodeNode.<String, String>builder()
+        // 现在使用自动类型提取，代码更简洁！
+        
+        // 1. 用户输入处理节点 - 使用简化的构建方式
+        CodeNode<String> inputProcessor = CodeNode.<String>builder()
                 .code(input -> "处理用户输入: " + input)
+                .outType(String.class)  // 明确指定输出类型为String
                 .build("666");
-
 
         // 2. 构造AI对话节点的请求
         ChatClientRequestSpec requestSpec = chatClient.prompt().system("你是一个乐于助人的小助手");
 
-        // 3. AI对话节点
-        AIChatNode<String, String> aiChatNode = AIChatNode.<String, String>builder()
+        // 3. AI对话节点 - 明确指定输出类型
+        AIChatNode<String> aiChatNode = AIChatNode.<String>builder()
                 .chatClientRequestSpec(requestSpec)
                 .prompt(input -> List.of(new UserMessage(input)))
                 .outType(String.class)
                 .build("请问爱到底是什么");
+
         // 构建树结构
         EasyTree.TreeNode root = manager.setStartNode(inputProcessor);
         root.addChild(aiChatNode);

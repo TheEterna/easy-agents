@@ -14,21 +14,36 @@ import java.util.function.*;
  * @time 2025/7/28 10:52
  */
 
-public abstract class Node<IN, OUT> {
+public abstract class Node<IN> {
     protected WorkFlowManager<?> workFlowManager;
-    protected Class<OUT> outType;
+//    protected Class<OUT> outType;
     protected Class<IN> inType;
     protected IN input;
+    protected Class<?> outType;
 
     protected Node() {
-
+        // 自动从泛型中提取类型信息
     }
 
     protected Node(IN input) {
         this();
         this.input = input;
-        this.inType = (Class<IN>) input.getClass();
+        // 如果输入不为null，优先使用输入的实际类型
+        if (input != null) {
+            this.inType = (Class<IN>) input.getClass();
+        }
     }
+
+    /**
+     * 从builder中设置类型信息，如果没有指定则使用默认值
+     */
+    protected void setTypesFromBuilder(NodeBuilder<IN, Node<IN>> builder) {
+        // 如果builder没有指定类型，使用泛型提取的类型
+        if (builder.inType != null) {
+            this.inType = builder.inType;
+        }
+    }
+    
     protected Node(UUID resultId) {
 //        this();
         // 需要使用workflowManager对象获取到结果池中的 数据
@@ -54,45 +69,47 @@ public abstract class Node<IN, OUT> {
         this.input = (IN) value;
     }
 
-    public abstract OUT executeNode();
+    public abstract <OUT> OUT executeNode();
+
+//    public abstract <OUT> OUT executeNode(Class<OUT> outType);
 
 //    public abstract OUT executeNode(IN input);
 
 
-    public abstract static class NodeBuilder<IN, OUT, T extends Node<IN, OUT>> {
+    public abstract static class NodeBuilder<IN, T extends Node<IN>> {
         protected WorkFlowManager<?> workFlowManager;
-        protected Class<OUT> outType;
         protected Class<IN> inType;
+        protected Class<?> outType;
         protected IN input;
         protected UUID resultId;
 
         // 设置工作流管理器
-        public NodeBuilder<IN, OUT, T> workFlowManager(WorkFlowManager<?> workFlowManager) {
+        public NodeBuilder<IN, T> workFlowManager(WorkFlowManager<?> workFlowManager) {
             this.workFlowManager = workFlowManager;
             return this;
         }
 
-        // 设置输出类型
-        public NodeBuilder<IN, OUT, T> outType(Class<OUT> outType) {
-            this.outType = outType;
-            return this;
-        }
-
         // 设置输入类型
-        public NodeBuilder<IN, OUT, T> inType(Class<IN> inType) {
+        public NodeBuilder<IN, T> inType(Class<IN> inType) {
             this.inType = inType;
             return this;
         }
 
+        // 设置输入类型
+        public <OUT> NodeBuilder<IN, T> outType(Class<OUT> outType) {
+            this.outType = outType;
+            return this;
+        }
+
         // 直接设置输入对象（与resultId互斥）
-        public NodeBuilder<IN, OUT, T> input(IN input) {
+        public NodeBuilder<IN, T> input(IN input) {
             this.input = input;
             this.resultId = null; // 清除resultId，确保互斥
             return this;
         }
 
         // 通过resultId从结果池获取输入（与input互斥）
-        public NodeBuilder<IN, OUT, T> resultId(UUID resultId) {
+        public NodeBuilder<IN, T> resultId(UUID resultId) {
             this.resultId = resultId;
             this.input = null; // 清除input，确保互斥
             return this;
@@ -118,5 +135,7 @@ public abstract class Node<IN, OUT> {
                 ));
             }
         }
+
+
     }
 }

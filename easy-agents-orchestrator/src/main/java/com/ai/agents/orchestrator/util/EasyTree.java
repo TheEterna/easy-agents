@@ -128,7 +128,7 @@ public class EasyTree implements Iterable<Node> {
 
     public EasyTree() {
 
-        this.root = new TreeNode(CodeNode.<String, String>builder().code(input ->  {
+        this.root = new TreeNode(CodeNode.<String>builder().code(input ->  {
             return "";
         }).build(""));
         this.size = 0;
