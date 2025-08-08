@@ -54,14 +54,13 @@ public class WorkFlowManager<IN> {
         return nodes.setRoot(node);
     }
 
-    public TreeNode setStartNodes(Node... nodes) {
-        for (Node node : nodes) {
-            setStartNode(node);
-        }
-        return indexNode;
-    }
     
     public Object startWorkFlow() {
+
+        nodes.forEach((node -> {
+            node.setWorkFlowManager(this);
+        }));
+
         // 获取根节点
         TreeNode root = nodes.getRoot();
         if (root == null) {
@@ -114,12 +113,12 @@ public class WorkFlowManager<IN> {
                 log.info("node result: {}", result);
 
                 // 将结果安全地放入结果池
-                resultPool.put(UUID.randomUUID(), new NodeResult(result));
+                resultPool.put(node.getId(), new NodeResult(result));
 
             } catch (Exception e) {
                 log.error("node throw exception: {}", result);
                 // 将结果安全地放入结果池
-                resultPool.put(UUID.randomUUID(), new NodeResult(e.getMessage()));
+                resultPool.put(node.getId(), new NodeResult(e.getMessage()));
                 throw new RuntimeException(e);
             }
             return null;

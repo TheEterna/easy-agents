@@ -2,6 +2,7 @@ package com.ai.agents.orchestrator.node;
 
 import org.springframework.ai.chat.client.ChatClient.*;
 import org.springframework.ai.chat.messages.*;
+import org.springframework.util.*;
 
 import java.util.*;
 import java.util.function.*;
@@ -22,14 +23,16 @@ public class AIChatNode<IN> extends Node<IN> {
 
 
     @Override
-    public <OUT> OUT executeNode() {
-        return (OUT) chatClientRequestSpec.call().entity(outType);
-    }
-//    @Override
-//    public <OUT> OUT executeNode(Class<OUT> outType) {
-//        return chatClientRequestSpec.call().entity(outType);
-//    }
+    public <OUT> OUT execute() {
 
+        List<Message> messages = prompt.apply(input);
+
+        if (ClassUtils.isAssignable(outType, String.class)) {
+            return (OUT) chatClientRequestSpec.messages(messages).call().content();
+        }
+
+        return (OUT) chatClientRequestSpec.messages(messages).call().entity(outType);
+    }
 
     private AIChatNode(AIChatNodeBuilder<IN> builder) {
         super(builder.input);
@@ -40,8 +43,8 @@ public class AIChatNode<IN> extends Node<IN> {
         this.workFlowManager = builder.workFlowManager;
     }
 
-    private AIChatNode(AIChatNodeBuilder<IN> builder, UUID resultId) {
-        super(builder.resultId);
+    private AIChatNode(AIChatNodeBuilder<IN> builder, UUID inputResultId) {
+        super(inputResultId);
         this.prompt = builder.prompt;
         this.chatClientRequestSpec = builder.chatClientRequestSpec;
         this.inType = builder.inType;
@@ -49,12 +52,8 @@ public class AIChatNode<IN> extends Node<IN> {
         this.workFlowManager = builder.workFlowManager;
     }
 
-    // 静态方法获取建造器
-//    public static <IN, OUT> AIChatNodeBuilder<IN, OUT> builder() {
-//        return new AIChatNodeBuilder<>();
-//    }
 
-    // 静态方法获取建造器
+
     public static <IN> AIChatNodeBuilder<IN> builder() {
         return new AIChatNodeBuilder<>();
     }
@@ -72,11 +71,11 @@ public class AIChatNode<IN> extends Node<IN> {
         }
 
         @Override
-        public AIChatNode<IN> build(UUID resultId) {
+        public AIChatNode<IN> build(UUID inputResultId) {
             // 先验证参数
             validate();
-            this.resultId(resultId);
-            return new AIChatNode<IN>(this, resultId);
+            this.inputResultId(inputResultId);
+            return new AIChatNode<IN>(this, inputResultId);
         }
         @Override
         public AIChatNode<IN> build(IN input) {
@@ -87,33 +86,4 @@ public class AIChatNode<IN> extends Node<IN> {
         }
 
     }
-
-//    public static class AIChatNodeBuilder<IN, OUT> extends NodeBuilder<IN, OUT, AIChatNode<IN, OUT>> {
-//        private ChatClientRequestSpec chatClientRequestSpec;
-//        private Function<IN, List<Message>> prompt = input -> null;
-//        public AIChatNode.AIChatNodeBuilder<IN, OUT> prompt(Function<IN, List<Message>> prompt) {
-//            this.prompt = prompt;
-//            return this;
-//        }
-//        public AIChatNode.AIChatNodeBuilder<IN, OUT> chatClientRequestSpec(ChatClientRequestSpec chatClientRequestSpec) {
-//            this.chatClientRequestSpec = chatClientRequestSpec;
-//            return this;
-//        }
-//
-//        @Override
-//        public AIChatNode<IN, OUT> build(UUID resultId) {
-//            // 先验证参数
-//            validate();
-//            this.resultId(resultId);
-//            return new AIChatNode<IN, OUT>(this, resultId);
-//        }
-//        @Override
-//        public AIChatNode<IN, OUT> build(IN input) {
-//            // 先验证参数
-//            validate();
-//            this.input(input);
-//            return new AIChatNode<IN, OUT>(this);
-//        }
-//    }
-
 }

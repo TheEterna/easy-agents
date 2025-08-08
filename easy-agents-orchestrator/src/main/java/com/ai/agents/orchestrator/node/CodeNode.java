@@ -11,11 +11,9 @@ import java.util.function.Function;
 public class CodeNode<IN> extends Node<IN> {
 
     private Function<IN, Object> code = input -> null;
-
-
-
+    
     @Override
-    public <OUT> OUT executeNode() {
+    public <OUT> OUT execute() {
         // 使用存储的input作为参数调用函数
         return (OUT) code.apply(input);
     }
@@ -28,8 +26,8 @@ public class CodeNode<IN> extends Node<IN> {
         this.workFlowManager = builder.workFlowManager;
     }
 
-    private CodeNode(CodeNodeBuilder<IN> builder, UUID resultId) {
-        super(builder.resultId);
+    private CodeNode(CodeNodeBuilder<IN> builder, UUID inputResultId) {
+        super(builder.inputResultId);
         this.code = builder.code;
         this.inType = builder.inType;
         this.outType = builder.outType;
@@ -54,11 +52,11 @@ public class CodeNode<IN> extends Node<IN> {
         }
 
         @Override
-        public CodeNode<IN> build(UUID resultId) {
+        public CodeNode<IN> build(UUID inputResultId) {
             // 先验证参数
             validate();
-            this.resultId(resultId);
-            return new CodeNode<IN>(this, resultId);
+            this.inputResultId(inputResultId);
+            return new CodeNode<IN>(this, inputResultId);
         }
         @Override
         public CodeNode<IN> build(IN input) {

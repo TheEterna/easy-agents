@@ -36,6 +36,10 @@ public class EasyTree implements Iterable<Node> {
             return parent;
         }
 
+        public UUID getId() {
+            return id;
+        }
+
         public List<TreeNode> getChildren() {
             return childrenWithRouterOptions.keySet().stream().toList();
         }
