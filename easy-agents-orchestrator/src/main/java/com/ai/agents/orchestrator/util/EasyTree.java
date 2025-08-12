@@ -24,7 +24,7 @@ public class EasyTree implements Iterable<Node> {
     public static class TreeNode {
         private UUID id;
         private Node element;
-        private TreeNode parent;
+        private List<TreeNode> parentNodes;
         // 在这里, 子节点上写一些 = xx 的路由选项, 用于路由, 并且可以 中间加&&, key 为 子节点
         private Map<TreeNode, RouteOption> childrenWithRouterOptions;
 
@@ -32,8 +32,8 @@ public class EasyTree implements Iterable<Node> {
             return element;
         }
 
-        public TreeNode getParent() {
-            return parent;
+        public List<TreeNode> getParentNodes() {
+            return parentNodes;
         }
 
         public UUID getId() {
@@ -60,42 +60,60 @@ public class EasyTree implements Iterable<Node> {
 
         public TreeNode() {
             this.id = UUID.randomUUID();
+            this.childrenWithRouterOptions = new HashMap<>();
+            this.parentNodes = new ArrayList<>();
         }
         public TreeNode(Node element) {
             this();
             this.element = element;
-            this.childrenWithRouterOptions = new HashMap<>();
         }
 
-        public TreeNode addChild(TreeNode child) {
-            child.parent = this;
-            // 直接添加到末尾，保持添加顺序
-            childrenWithRouterOptions.put(child, null);
-            return child;
-        }
-
-        public TreeNode addChild(Node child) {
-            TreeNode childNode = new TreeNode(child);
-            childNode.parent = this;
+        public TreeNode addChild(TreeNode childNode) {
+            childNode.parentNodes.add(this);
             // 直接添加到末尾，保持添加顺序
             childrenWithRouterOptions.put(childNode, null);
             return childNode;
         }
 
-        // 移除子节点
-        public boolean removeChild(TreeNode child) {
-            return childrenWithRouterOptions.remove(child) != null;
+        public TreeNode addChild(TreeNode childNode, RouteOption routeOption) {
+            childNode.parentNodes.add(this);
+            // 直接添加到末尾，保持添加顺序
+            childrenWithRouterOptions.put(childNode, routeOption);
+            return childNode;
         }
 
-        // 查找子节点
-        public TreeNode findChild(Node element) {
-            for (TreeNode child : childrenWithRouterOptions.keySet()) {
-                if (child.element.equals(element)) {
-                    return child;
-                }
-            }
-            return null;
+
+
+        public TreeNode addChild(Node child) {
+            TreeNode childNode = new TreeNode(child);
+            childNode.parentNodes.add(this);
+            // 直接添加到末尾，保持添加顺序
+            childrenWithRouterOptions.put(childNode, null);
+            return childNode;
         }
+        public TreeNode addChild(Node child, RouteOption routeOption) {
+            TreeNode childNode = new TreeNode(child);
+            childNode.parentNodes.add(this);
+            // 直接添加到末尾，保持添加顺序
+            childrenWithRouterOptions.put(childNode, routeOption);
+            return childNode;
+        }
+
+
+        // 移除子节点
+//        public boolean removeChild(TreeNode child) {
+//            return childrenWithRouterOptions.remove(child) != null;
+//        }
+
+        // 查找子节点
+//        public TreeNode findChild(Node element) {
+//            for (TreeNode child : childrenWithRouterOptions.keySet()) {
+//                if (child.element.equals(element)) {
+//                    return child;
+//                }
+//            }
+//            return null;
+//        }
 
 
         @Override
@@ -162,21 +180,21 @@ public class EasyTree implements Iterable<Node> {
     }
 
     // 查找合适的父节点并插入新元素
-    private void findParentAndInsert(Node element) {
-        TreeNode current = root;
-        while (true) {
-            // 尝试查找是否已存在相同的子节点
-            TreeNode child = current.findChild(element);
-
-            if (child != null) {
-                current = child; // 继续向下查找
-            } else {
-                // 找到合适的父节点，插入为子节点
-                current.addChild(new TreeNode(element));
-                break;
-            }
-        }
-    }
+//    private void findParentAndInsert(Node element) {
+//        TreeNode current = root;
+//        while (true) {
+//            // 尝试查找是否已存在相同的子节点
+//            TreeNode child = current.findChild(element);
+//
+//            if (child != null) {
+//                current = child; // 继续向下查找
+//            } else {
+//                // 找到合适的父节点，插入为子节点
+//                current.addChild(new TreeNode(element));
+//                break;
+//            }
+//        }
+//    }
 
     /**
      * 检查元素是否存在
@@ -191,7 +209,11 @@ public class EasyTree implements Iterable<Node> {
         return findNode(target) != null;
     }
 
-    // 查找元素对应的节点
+    /**
+     * 查找元素对应的节点
+     * @param target 要查找的元素
+     * @return 对应的节点
+     */
     private TreeNode findNode(Node target) {
         if (root == null) {
             return null;
@@ -216,41 +238,41 @@ public class EasyTree implements Iterable<Node> {
      * @param o 要移除的元素
      * @return 元素存在且移除成功返回true
      */
-    public boolean remove(Object o) {
-        if (o == null) {
-            return false;
-        }
-        Node target = (Node) o;
-        TreeNode node = findNode(target);
-
-        if (node == null) {
-            return false;
-        }
-
-        // 处理根节点的特殊情况
-        if (node == root) {
-            if (root.getChildren().isEmpty()) {
-                root = null;
-            } else {
-                // 用第一个子节点作为新根，并合并其他子节点
-                TreeNode newRoot = root.getChildren().remove(0);
-                newRoot.getChildren().addAll(root.getChildren());
-                newRoot.parent = null;
-                root = newRoot;
-            }
-        } else {
-            // 非根节点：将其所有子节点提升为父节点的子节点
-            TreeNode parent = node.parent;
-            parent.removeChild(node);
-            // 合并子节点到父节点
-            for (TreeNode child : node.getChildren()) {
-                parent.addChild(child);
-            }
-        }
-
-        size--;
-        return true;
-    }
+//    public boolean remove(Object o) {
+//        if (o == null) {
+//            return false;
+//        }
+//        Node target = (Node) o;
+//        TreeNode node = findNode(target);
+//
+//        if (node == null) {
+//            return false;
+//        }
+//
+//        // 处理根节点的特殊情况
+//        if (node == root) {
+//            if (root.getChildren().isEmpty()) {
+//                root = null;
+//            } else {
+//                // 用第一个子节点作为新根，并合并其他子节点
+//                TreeNode newRoot = root.getChildren().remove(0);
+//                newRoot.getChildren().addAll(root.getChildren());
+//                newRoot.parent = null;
+//                root = newRoot;
+//            }
+//        } else {
+//            // 非根节点：将其所有子节点提升为父节点的子节点
+//            TreeNode parent = node.parent;
+//            parent.removeChild(node);
+//            // 合并子节点到父节点
+//            for (TreeNode child : node.getChildren()) {
+//                parent.addChild(child);
+//            }
+//        }
+//
+//        size--;
+//        return true;
+//    }
 
     /**
      * 迭代器（前序遍历：根->子节点）
@@ -311,29 +333,29 @@ public class EasyTree implements Iterable<Node> {
     /**
      * 移除所有包含的元素
      */
-    public boolean removeAll(Collection<?> c) {
-        boolean modified = false;
-        for (Object o : c) {
-            if (remove(o)) {
-                modified = true;
-            }
-        }
-        return modified;
-    }
+//    public boolean removeAll(Collection<?> c) {
+//        boolean modified = false;
+//        for (Object o : c) {
+//            if (remove(o)) {
+//                modified = true;
+//            }
+//        }
+//        return modified;
+//    }
 
     /**
      * 保留集合中与参数共有的元素
      */
-    public boolean retainAll(Collection<?> c) {
-        Set<?> collectionSet = new HashSet<>(c);
-        List<Node> toRemove = new ArrayList<>();
-        for (Node t : this) {
-            if (!collectionSet.contains(t)) {
-                toRemove.add(t);
-            }
-        }
-        return removeAll(toRemove);
-    }
+//    public boolean retainAll(Collection<?> c) {
+//        Set<?> collectionSet = new HashSet<>(c);
+//        List<Node> toRemove = new ArrayList<>();
+//        for (Node t : this) {
+//            if (!collectionSet.contains(t)) {
+//                toRemove.add(t);
+//            }
+//        }
+//        return removeAll(toRemove);
+//    }
 
     /**
      * 获取集合大小

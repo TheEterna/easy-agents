@@ -21,7 +21,7 @@ public abstract class Node<IN> {
     protected UUID inputResultId;
 
     protected Node() {
-        // 自动从泛型中提取类型信息
+
     }
 
     protected Node(IN input) {

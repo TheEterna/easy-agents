@@ -11,6 +11,7 @@
 
     <modules>
         <module>easy-agents-orchestrator</module>
+        <module>easy-agents-common</module>
     </modules>
 
     <properties>

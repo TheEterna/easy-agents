@@ -8,11 +8,13 @@
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
         <module name="easy-agents-orchestrator" />
+        <module name="easy-agents-common" />
       </profile>
     </annotationProcessing>
   </component>
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">
+      <module name="easy-agents-common" options="-parameters" />
       <module name="easy-agents-orchestrator" options="-parameters" />
       <module name="easy-agents-parent" options="-parameters" />
     </option>

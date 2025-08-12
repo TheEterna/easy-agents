@@ -1,5 +1,6 @@
 package com.ai.agents.orchestrator.workflow;
 
+import com.ai.agents.common.model.*;
 import com.ai.agents.orchestrator.node.Node;
 import com.ai.agents.orchestrator.util.EasyTree;
 import com.ai.agents.orchestrator.util.EasyTree.TreeNode;
@@ -8,6 +9,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 作为工作流的一个操控器, 职责:
@@ -33,6 +36,10 @@ public class WorkFlowManager<IN> {
     }
 
     private final ExecutorService executor;
+
+    // 聚合执行所需的状态：每个节点剩余未完成的父节点数量，以及是否被任一父节点路由命中
+    private Map<TreeNode, AtomicInteger> parentsLeft; // 初始为父节点数量
+    private Map<TreeNode, AtomicBoolean> allowedByAnyParent; // 任一父节点路由命中
 
     private WorkFlowManager(ExecutorService executorService) {
         nodes = new EasyTree();
@@ -67,6 +74,7 @@ public class WorkFlowManager<IN> {
             return null;
         }
         log.info("start workflow");
+        prepareAggregationState();
         // 启动工作流，并等待其所有分支执行完成
         executeWorkflow(root).join();
         log.info("end workflow");
@@ -74,6 +82,78 @@ public class WorkFlowManager<IN> {
         this.nodes.printTree();
 
         return resultPool;
+    }
+
+    /**
+     * 校验当前工作流结构是否健康。
+     * 检测项：
+     * 1) 是否存在根节点；
+     * 2) 是否存在循环链（不建议使用循环链，循环链可能导致程序无法退出）；
+     * 3) 是否存在空节点（元素为null）；
+     * 4) 是否为空工作流（只有根且无子节点）。
+     * 返回 ValidationResult，包含是否正常、提示信息及可选警告列表。
+     */
+    public ValidationResult validateWorkflow() {
+        List<String> warnings = new ArrayList<>();
+
+        TreeNode root = nodes.getRoot();
+        if (root == null) {
+            return new ValidationResult(false, "未设置开始节点（根节点为空）", warnings);
+        }
+
+        // DFS 检测环 & 收集节点
+        Set<TreeNode> visited = new HashSet<>();
+        Set<TreeNode> onPath = new HashSet<>();
+        boolean[] hasCycle = new boolean[]{false};
+        boolean[] hasNullElement = new boolean[]{false};
+
+        dfsValidate(root, visited, onPath, hasCycle, hasNullElement);
+
+        if (hasNullElement[0]) {
+            warnings.add("发现元素为null的节点（可能是占位ROOT或构建异常），建议检查");
+        }
+        if (visited.size() == 1 && root.getChildren().isEmpty()) {
+            warnings.add("工作流为空：仅包含开始节点且没有后续节点");
+        }
+
+        if (hasCycle[0]) {
+            return new ValidationResult(false, "检测到循环链：不建议使用循环链，循环链可能导致程序无法退出", warnings);
+        }
+
+        return new ValidationResult(true, warnings.isEmpty() ? "工作流结构正常" : "工作流结构基本正常（存在警告）", warnings);
+    }
+
+    private void dfsValidate(TreeNode node,
+                             Set<TreeNode> visited,
+                             Set<TreeNode> onPath,
+                             boolean[] hasCycle,
+                             boolean[] hasNullElement) {
+        if (hasCycle[0]) {
+            return;
+        }
+        if (node == null) {
+            return;
+        }
+        if (node.getElement() == null) {
+            hasNullElement[0] = true;
+        }
+        if (onPath.contains(node)) {
+            hasCycle[0] = true;
+            return;
+        }
+        if (visited.contains(node)) {
+            return;
+        }
+
+        onPath.add(node);
+        visited.add(node);
+        for (TreeNode child : node.getChildren()) {
+            dfsValidate(child, visited, onPath, hasCycle, hasNullElement);
+            if (hasCycle[0]) {
+                return;
+            }
+        }
+        onPath.remove(node);
     }
 
     public Map<UUID, NodeResult> getResultPool() {
@@ -89,6 +169,7 @@ public class WorkFlowManager<IN> {
             return null;
         }
         log.info("start workflow");
+        prepareAggregationState();
         // 启动工作流，并等待其所有分支执行完成
         executeWorkflow(root).join();
         log.info("end workflow");
@@ -125,22 +206,78 @@ public class WorkFlowManager<IN> {
 
         }, executor)
         .thenCompose(v -> {
-            // 3. 根据路由条件获取所有符合条件的子节点
-            List<TreeNode> nextNodes = node.getNextNodes(resultPool);
+            // 基于“聚合”语义：
+            // 1) 记录当前父节点对各子节点的路由命中
+            // 2) 将各子节点的 parentsLeft 计数减一
+            // 3) 仅当 parentsLeft==0 且被至少一个父节点命中时，才调度执行该子节点
 
-            // 如果没有后续节点，则该分支执行完毕
-            if (nextNodes.isEmpty()) {
-                return CompletableFuture.completedFuture(null);
+            List<TreeNode> allChildren = node.getChildren();
+            List<TreeNode> allowedChildrenFromThisParent = node.getNextNodes(resultPool);
+            Set<TreeNode> allowedSet = new HashSet<>(allowedChildrenFromThisParent);
+
+            List<CompletableFuture<Void>> readyFutures = new ArrayList<>();
+            // 无论是否执行都要减去一个left，因为这个初始的left是所有的子节点，无关她是否执行，如果该节点能执行则加入执行队列，不是则不加入
+            for (TreeNode child : allChildren) {
+                // 标记是否被本父节点放行
+                if (allowedSet.contains(child)) {
+                    allowedByAnyParent.get(child).set(true);
+                }
+
+                // 父计数 -1
+                int left = parentsLeft.get(child).decrementAndGet();
+                if (left == 0) {
+                    // 全部父节点已完成，若至少一个父节点放行，则执行
+                    if (allowedByAnyParent.get(child).get()) {
+                        readyFutures.add(executeWorkflow(child));
+                    } else {
+                        log.info("skip child {}: no parent routed to it", child.getId());
+                    }
+                }
             }
 
-            // 4. 为每个子节点创建一个新的递归执行任务，并收集它们的 Future
-            List<CompletableFuture<Void>> childFutures = nextNodes.stream()
-                    .map(this::executeWorkflow)
-                    .toList();
-
-            // 5. 返回一个组合的 Future，它将在所有子分支都执行完毕后完成
-            return CompletableFuture.allOf(childFutures.toArray(new CompletableFuture[0]));
+            if (readyFutures.isEmpty()) {
+                return CompletableFuture.completedFuture(null);
+            }
+            return CompletableFuture.allOf(readyFutures.toArray(new CompletableFuture[0]));
         });
+    }
+
+    // 初始化聚合执行所需的 parentsLeft / allowedByAnyParent 状态
+    private void prepareAggregationState() {
+        TreeNode root = nodes.getRoot();
+        this.parentsLeft = new ConcurrentHashMap<>();
+        this.allowedByAnyParent = new ConcurrentHashMap<>();
+
+        List<TreeNode> allNodes = collectAllNodes(root);
+        for (TreeNode n : allNodes) {
+            int parentCount = n.getParentNodes() == null ? 0 : n.getParentNodes().size();
+            parentsLeft.put(n, new AtomicInteger(parentCount));
+            allowedByAnyParent.put(n, new AtomicBoolean(false));
+        }
+
+        // 根节点：无父、可直接执行。其 allowed 与否不影响，它会被直接调度。
+        parentsLeft.get(root).set(0);
+    }
+
+    private List<TreeNode> collectAllNodes(TreeNode root) {
+        List<TreeNode> list = new ArrayList<>();
+        if (root == null) {
+            return list;
+        }
+        Queue<TreeNode> q = new ArrayDeque<>();
+        Set<TreeNode> seen = new HashSet<>();
+        q.add(root);
+        seen.add(root);
+        while (!q.isEmpty()) {
+            TreeNode cur = q.poll();
+            list.add(cur);
+            for (TreeNode c : cur.getChildren()) {
+                if (seen.add(c)) {
+                    q.add(c);
+                }
+            }
+        }
+        return list;
     }
 
 
@@ -182,6 +319,7 @@ public class WorkFlowManager<IN> {
         public Object getValue() { return value; }
         public Class<?> getType() { return type; }
     }
+
 
     public static class Builder {
         private ExecutorService executorService;

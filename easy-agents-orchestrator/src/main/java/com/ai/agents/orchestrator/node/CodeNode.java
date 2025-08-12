@@ -11,7 +11,7 @@ import java.util.function.Function;
 public class CodeNode<IN> extends Node<IN> {
 
     private Function<IN, Object> code = input -> null;
-    
+
     @Override
     public <OUT> OUT execute() {
         // 使用存储的input作为参数调用函数
