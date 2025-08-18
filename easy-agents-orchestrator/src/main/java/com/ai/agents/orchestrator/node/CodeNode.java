@@ -1,5 +1,6 @@
 package com.ai.agents.orchestrator.node;
 
+import reactor.core.publisher.Flux;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
@@ -13,9 +14,15 @@ public class CodeNode<IN> extends Node<IN> {
     private Function<IN, Object> code = input -> null;
 
     @Override
-    public <OUT> OUT execute() {
+    public <OUT> OUT executeBlocking() {
         // 使用存储的input作为参数调用函数
         return (OUT) code.apply(input);
+    }
+
+    @Override
+    public Flux<?> executeStreaming() {
+        Object v = this.executeBlocking();
+        return Flux.just(v);
     }
 
     private CodeNode(CodeNodeBuilder<IN> builder) {
@@ -43,7 +50,7 @@ public class CodeNode<IN> extends Node<IN> {
     }
 
     // 具体建造器实现
-    public static class CodeNodeBuilder<IN> extends NodeBuilder<IN, CodeNode<IN>> {
+    public static class CodeNodeBuilder<IN> extends NodeBuilder<IN, CodeNodeBuilder<IN>, CodeNode<IN>> {
         Function<IN, Object> code;
 
         public CodeNodeBuilder<IN> code(Function<IN, Object> code) {

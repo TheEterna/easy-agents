@@ -1,6 +1,6 @@
 package com.ai.agents.orchestrator.util;
 
-import com.ai.agents.orchestrator.workflow.WorkFlowManager.NodeResult;
+import com.ai.agents.orchestrator.util.NodeResult;
 import com.ai.agents.orchestrator.util.EasyTree.TreeNode;
 
 import java.util.*;

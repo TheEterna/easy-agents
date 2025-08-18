@@ -3,6 +3,7 @@ package com.ai.agents.orchestrator.node;
 import org.springframework.ai.chat.client.ChatClient.*;
 import org.springframework.ai.chat.messages.*;
 import org.springframework.util.*;
+import reactor.core.publisher.Flux;
 
 import java.util.*;
 import java.util.function.*;
@@ -23,7 +24,7 @@ public class AIChatNode<IN> extends Node<IN> {
 
 
     @Override
-    public <OUT> OUT execute() {
+    public <OUT> OUT executeBlocking() {
 
         List<Message> messages = prompt.apply(input);
 
@@ -32,6 +33,13 @@ public class AIChatNode<IN> extends Node<IN> {
         }
 
         return (OUT) chatClientRequestSpec.messages(messages).call().entity(outType);
+    }
+
+    @Override
+    public Flux<?> executeStreaming() {
+        // 真实流式：直接返回底层的响应式流
+        List<Message> messages = prompt.apply(input);
+        return chatClientRequestSpec.messages(messages).stream().content();
     }
 
     private AIChatNode(AIChatNodeBuilder<IN> builder) {
@@ -58,14 +66,15 @@ public class AIChatNode<IN> extends Node<IN> {
         return new AIChatNodeBuilder<>();
     }
 
-    public static class AIChatNodeBuilder<IN> extends NodeBuilder<IN, AIChatNode<IN>> {
+    public static class AIChatNodeBuilder<IN> extends NodeBuilder<IN, AIChatNodeBuilder<IN>, AIChatNode<IN>> {
+
         private ChatClientRequestSpec chatClientRequestSpec;
         private Function<IN, List<Message>> prompt = input -> null;
-        public AIChatNode.AIChatNodeBuilder<IN> prompt(Function<IN, List<Message>> prompt) {
+        public AIChatNodeBuilder<IN> prompt(Function<IN, List<Message>> prompt) {
             this.prompt = prompt;
             return this;
         }
-        public AIChatNode.AIChatNodeBuilder<IN> chatClientRequestSpec(ChatClientRequestSpec chatClientRequestSpec) {
+        public AIChatNodeBuilder<IN> chatClientRequestSpec(ChatClientRequestSpec chatClientRequestSpec) {
             this.chatClientRequestSpec = chatClientRequestSpec;
             return this;
         }
@@ -77,6 +86,7 @@ public class AIChatNode<IN> extends Node<IN> {
             this.inputResultId(inputResultId);
             return new AIChatNode<IN>(this, inputResultId);
         }
+
         @Override
         public AIChatNode<IN> build(IN input) {
             // 先验证参数

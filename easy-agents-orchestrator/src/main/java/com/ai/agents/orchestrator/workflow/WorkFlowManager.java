@@ -2,15 +2,16 @@ package com.ai.agents.orchestrator.workflow;
 
 import com.ai.agents.common.model.*;
 import com.ai.agents.orchestrator.node.Node;
-import com.ai.agents.orchestrator.util.EasyTree;
+import com.ai.agents.orchestrator.util.*;
 import com.ai.agents.orchestrator.util.EasyTree.TreeNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import reactor.core.publisher.*;
 
 import java.util.*;
+import java.util.AbstractMap.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.*;
 
 /**
  * 作为工作流的一个操控器, 职责:
@@ -28,18 +29,14 @@ public class WorkFlowManager<IN> {
     private Map<UUID, NodeResult> resultPool;
     private TreeNode indexNode;
 
-    private IN input;
-
-
-    public IN getInput() {
-        return input;
-    }
-
     private final ExecutorService executor;
 
     // 聚合执行所需的状态：每个节点剩余未完成的父节点数量，以及是否被任一父节点路由命中
     private Map<TreeNode, AtomicInteger> parentsLeft; // 初始为父节点数量
     private Map<TreeNode, AtomicBoolean> allowedByAnyParent; // 任一父节点路由命中
+
+    // 流式事件通道：按节点完成顺序向下游发射 (UUID -> NodeResult) 键值对
+    private Sinks.Many<Object> eventSink;
 
     private WorkFlowManager(ExecutorService executorService) {
         nodes = new EasyTree();
@@ -61,8 +58,12 @@ public class WorkFlowManager<IN> {
         return nodes.setRoot(node);
     }
 
-    
-    public Object startWorkFlow() {
+
+    /**
+     * 阻塞式启动工作流
+     * @return
+     */
+    public Map<UUID, NodeResult> startBlocking() {
 
         nodes.forEach((node -> {
             node.setWorkFlowManager(this);
@@ -75,14 +76,44 @@ public class WorkFlowManager<IN> {
         }
         log.info("start workflow");
         prepareAggregationState();
-        // 启动工作流，并等待其所有分支执行完成
-        executeWorkflow(root).join();
+        // 启动工作流，并等待其所有分支执行完成（阻塞版）
+        executeWorkflowBlocking(root).join();
         log.info("end workflow");
 
         this.nodes.printTree();
 
         return resultPool;
     }
+
+    public Flux<Object> startStreaming() {
+
+        nodes.forEach((node -> {
+            node.setWorkFlowManager(this);
+        }));
+
+        // 获取根节点
+        TreeNode root = nodes.getRoot();
+        if (root == null) {
+            return Flux.empty();
+        }
+        log.info("start workflow");
+        prepareAggregationState();
+
+        // 初始化多播 sink，允许多个订阅者并在背压下进行缓冲
+        this.eventSink = Sinks.many().multicast().onBackpressureBuffer();
+
+        // 启动工作流（流式版）；完成时结束 Flux，出错时传递错误
+        executeWorkflowStreaming(root).whenComplete((v, exception) -> {
+            if (exception != null) {
+                eventSink.tryEmitError(exception);
+            } else {
+                eventSink.tryEmitComplete();
+            }
+        });
+
+        return eventSink.asFlux();
+    }
+
 
     /**
      * 校验当前工作流结构是否健康。
@@ -160,22 +191,6 @@ public class WorkFlowManager<IN> {
         return resultPool;
     }
 
-    public Object startWorkFlow(IN input) {
-        this.input = input;
-
-        // 获取根节点
-        TreeNode root = nodes.getRoot();
-        if (root == null) {
-            return null;
-        }
-        log.info("start workflow");
-        prepareAggregationState();
-        // 启动工作流，并等待其所有分支执行完成
-        executeWorkflow(root).join();
-        log.info("end workflow");
-
-        return resultPool;
-    }
 
     /**
      * 采用深度优先的并发模型执行工作流。
@@ -184,22 +199,91 @@ public class WorkFlowManager<IN> {
      * @param node 当前要执行的节点。
      * @return 一个 CompletableFuture，代表该节点及其所有后续分支的执行状态。
      */
-    private CompletableFuture<Void> executeWorkflow(TreeNode node) {
+    private CompletableFuture<Void> executeWorkflowStreaming(TreeNode node) {
+
+        // 1. 消费当前节点的流式输出：边发射边记录最后一个元素
+        AtomicReference<Object> last = new AtomicReference<>(null);
+        CompletableFuture nodeCompleted = node.getElement().executeNodeStreaming()
+            .doOnNext(item -> {
+                last.set(item);
+                if (eventSink != null) {
+                    eventSink.tryEmitNext(new SimpleEntry<>(node.getId(), new NodeResult(item)));
+                }
+            })
+            .doOnError(ex -> {
+                log.error("node stream error", ex);
+                if (eventSink != null) {
+                    eventSink.tryEmitNext(new SimpleEntry<>(node.getId(), new NodeResult(ex)));
+                }
+            })
+            .then()
+            .toFuture();
+
+        return nodeCompleted.thenCompose(v -> {
+            // 将最后一个元素（可能为 null）写入结果池，作为该节点的聚合结果
+            NodeResult finalResult = new NodeResult(last.get());
+            resultPool.put(node.getId(), finalResult);
+            // 基于“聚合”语义：
+            // 1) 记录当前父节点对各子节点的路由命中
+            // 2) 将各子节点的 parentsLeft 计数减一
+            // 3) 仅当 parentsLeft==0 且被至少一个父节点命中时，才调度执行该子节点
+
+            // 简述逻辑效果: 当一个节点上被多个父节点实际路由到时, 会等到所有父节点都执行完, 才会执行该子节点
+            // 简述逻辑: 通过一个map 去记录 某个子节点目前有多个父节点没有执行完
+            List<TreeNode> allChildren = node.getChildren();
+            List<TreeNode> allowedChildrenFromThisParent = node.getNextNodes(resultPool);
+            Set<TreeNode> allowedSet = new HashSet<>(allowedChildrenFromThisParent);
+
+            List<CompletableFuture<Void>> readyFutures = new ArrayList<>();
+
+            // 无论是否执行都要减去一个left，因为这个初始的left是所有的子节点，无关她是否执行，如果该节点能执行则加入执行队列，不是则不加入
+            for (TreeNode child : allChildren) {
+                // 标记是否被本父节点放行
+                if (allowedSet.contains(child)) {
+                    allowedByAnyParent.get(child).set(true);
+                }
+
+                // 父计数 -1
+                int left = parentsLeft.get(child).decrementAndGet();
+                if (left == 0) {
+                    // 全部父节点已完成，若至少一个父节点放行，则执行
+                    if (allowedByAnyParent.get(child).get()) {
+                        readyFutures.add(executeWorkflowStreaming(child));
+                    } else {
+                        log.info("skip child {}: no parent routed to it", child.getId());
+                    }
+                }
+            }
+
+            if (readyFutures.isEmpty()) {
+                return CompletableFuture.completedFuture(null);
+            }
+
+            return CompletableFuture.allOf(readyFutures.toArray(new CompletableFuture[0]));
+        });
+    }
+
+    /**
+     * 阻塞式执行：不进行流式事件发射，仅维护结果池与并发调度。
+     */
+    private CompletableFuture<Void> executeWorkflowBlocking(TreeNode node) {
 
         // 1. 异步执行当前节点
         return CompletableFuture.supplyAsync(() -> {
             Object result = null;
             try {
-                result = node.getElement().executeNode();
+                result = node.getElement().executeNodeBlocking();
                 log.info("node result: {}", result);
 
                 // 将结果安全地放入结果池
-                resultPool.put(node.getId(), new NodeResult(result));
+                NodeResult nr = new NodeResult(result);
+                resultPool.put(node.getId(), nr);
 
             } catch (Exception e) {
-                log.error("node throw exception: {}", result);
-                // 将结果安全地放入结果池
-                resultPool.put(node.getId(), new NodeResult(e.getMessage()));
+                log.error("node throw exception", e);
+                // 将异常结果放入结果池
+                NodeResult err = new NodeResult(e.getMessage());
+                resultPool.put(node.getId(), err);
                 throw new RuntimeException(e);
             }
             return null;
@@ -228,7 +312,7 @@ public class WorkFlowManager<IN> {
                 if (left == 0) {
                     // 全部父节点已完成，若至少一个父节点放行，则执行
                     if (allowedByAnyParent.get(child).get()) {
-                        readyFutures.add(executeWorkflow(child));
+                        readyFutures.add(executeWorkflowBlocking(child));
                     } else {
                         log.info("skip child {}: no parent routed to it", child.getId());
                     }
@@ -242,7 +326,6 @@ public class WorkFlowManager<IN> {
         });
     }
 
-    // 初始化聚合执行所需的 parentsLeft / allowedByAnyParent 状态
     private void prepareAggregationState() {
         TreeNode root = nodes.getRoot();
         this.parentsLeft = new ConcurrentHashMap<>();
@@ -284,42 +367,6 @@ public class WorkFlowManager<IN> {
     public static Builder builder() {
         return new Builder();
     }
-
-    /**
-     * 从结果池中安全地获取指定节点的结果。
-     */
-    public <T> T getResult(TreeNode node, Class<T> type) {
-        NodeResult nodeResult = resultPool.get(node);
-        if (nodeResult == null) {
-            throw new IllegalArgumentException("node not found in result pool");
-        }
-
-        if (nodeResult.getValue() == null) {
-            log.warn("having a node returns null: {}", node.getElement());
-        } else {
-
-            Object value = nodeResult.getValue();
-            if (type.isInstance(value)) {
-                return type.cast(value);
-            }
-        }
-        throw new IllegalArgumentException("node result type not match");
-    }
-
-
-    public static class NodeResult {
-        private final Object value;
-        private final Class<?> type;
-        
-        public NodeResult(Object value) {
-            this.value = value;
-            this.type = value.getClass();
-        }
-        
-        public Object getValue() { return value; }
-        public Class<?> getType() { return type; }
-    }
-
 
     public static class Builder {
         private ExecutorService executorService;

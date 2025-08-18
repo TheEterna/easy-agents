@@ -12,10 +12,7 @@ import org.springframework.ai.chat.messages.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import java.lang.reflect.*;
 import java.util.*;
-
-import static com.ai.agents.orchestrator.node.CodeNode.builder;
 
 /**
  * @author han
@@ -38,34 +35,29 @@ public class WorkFlowTests {
         WorkFlowManager manager = WorkFlowManager.builder()
                 .executorService(java.util.concurrent.Executors.newFixedThreadPool(4))
                 .build();
-
-
         // 现在使用自动类型提取，代码更简洁！
-        
-        // 1. 用户输入处理节点 - 使用简化的构建方式
-        CodeNode<String> inputProcessor = CodeNode.<String>builder()
+        // 1. 代码节点构建
+        CodeNode<String> startNode = CodeNode.<String>builder()
                 .code(input -> "用户问: " + input)
                 .outType(String.class)  // 明确指定输出类型为String
                 .build("我最近不开心");
-
         // 2. 构造AI对话节点的请求
-        ChatClientRequestSpec requestSpec = chatClient.prompt().system("你是一个乐于助人的小助手");
-
-
-
         // 构建树结构
-        EasyTree.TreeNode root = manager.setStartNode(inputProcessor);
+        EasyTree.TreeNode rootNode = manager.setStartNode(startNode);
         // 3. AI对话节点 - 明确指定输出类型
+        ChatClientRequestSpec requestSpec = chatClient.prompt().system("你是一个乐于助人的小助手");
         AIChatNode<String> aiChatNode = AIChatNode.<String>builder()
                 .chatClientRequestSpec(requestSpec)
                 .prompt(input -> List.of(new UserMessage(input)))
                 .outType(String.class)
-                .build(root.getId());
+                // 使用节点ID, 当作输入结果, 输入参数类型即为泛型
+                .build(rootNode.getId());
 
-        root.addChild(aiChatNode);
+        // 链接节点
+        rootNode.addChild(aiChatNode);
 
         // 启动工作流
-        Object result = manager.startWorkFlow();
+        Object result = manager.startBlocking();
 
         System.out.println("工作流执行结果: " + result);
 

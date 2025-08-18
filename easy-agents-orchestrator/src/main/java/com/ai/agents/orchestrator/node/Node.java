@@ -1,7 +1,10 @@
 package com.ai.agents.orchestrator.node;
 
+import com.ai.agents.orchestrator.util.*;
 import com.ai.agents.orchestrator.workflow.*;
 import com.ai.agents.orchestrator.workflow.WorkFlowManager.*;
+import com.ai.agents.common.model.*;
+import reactor.core.publisher.Flux;
 
 import java.util.*;
 
@@ -44,18 +47,31 @@ public abstract class Node<IN> {
 
     }
 
-    public <OUT> OUT executeNode() {
+    public <OUT> OUT executeNodeBlocking() {
         if (inputResultId != null) {
             NodeResult nodeResult = workFlowManager.getResultPool().get(inputResultId);
             Object value = nodeResult.getValue();
             this.input = (IN) value;
         }
-        return execute();
+        return executeBlocking();
     }
-    public abstract <OUT> OUT execute();
+    public abstract <OUT> OUT executeBlocking();
 
 
-    public abstract static class NodeBuilder<IN, T extends Node<IN>> {
+    public Flux<?> executeNodeStreaming() {
+        if (inputResultId != null) {
+            NodeResult nodeResult = workFlowManager.getResultPool().get(inputResultId);
+            Object value = nodeResult.getValue();
+            this.input = (IN) value;
+        }
+        return executeStreaming();
+    }
+
+    public abstract Flux<?> executeStreaming();
+
+
+    public abstract static class NodeBuilder<IN, B ,T extends Node<IN>> {
+
         protected WorkFlowManager<?> workFlowManager;
         protected Class<IN> inType;
         protected Class<?> outType;
@@ -63,35 +79,34 @@ public abstract class Node<IN> {
         protected UUID inputResultId;
 
         // 设置工作流管理器
-        public NodeBuilder<IN, T> workFlowManager(WorkFlowManager<?> workFlowManager) {
+        public B workFlowManager(WorkFlowManager<?> workFlowManager) {
             this.workFlowManager = workFlowManager;
-            return this;
+            return (B) this;
         }
 
         // 设置输入类型
-        public NodeBuilder<IN, T> inType(Class<IN> inType) {
+        public B inType(Class<IN> inType) {
             this.inType = inType;
-            return this;
+            return (B) this;
         }
 
         // 设置输入类型
-        public <OUT> NodeBuilder<IN, T> outType(Class<OUT> outType) {
+        public B outType(Class<?> outType) {
             this.outType = outType;
-            return this;
+            return (B) this;
         }
-
         // 直接设置输入对象（与inputResultId互斥）
-        public NodeBuilder<IN, T> input(IN input) {
+        public B input(IN input) {
             this.input = input;
             this.inputResultId = null; // 清除inputResultId，确保互斥
-            return this;
+            return (B) this;
         }
 
         // 通过inputResultId从结果池获取输入（与input互斥）
-        public NodeBuilder<IN, T> inputResultId(UUID inputResultId) {
+        public B inputResultId(UUID inputResultId) {
             this.inputResultId = inputResultId;
             this.input = null; // 清除input，确保互斥
-            return this;
+            return (B) this;
         }
 
         // 构建Node实例（抽象方法，由具体子类实现）

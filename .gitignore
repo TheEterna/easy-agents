@@ -1,10 +1,14 @@
-HELP.md
+# Maven 构建产物
 target/
-!.mvn/wrapper/maven-wrapper.jar
+!**/.mvn/wrapper/maven-wrapper.jar  # 保留maven wrapper
+
+# 避免忽略子模块或特定目录下的target（如果有特殊需求）
+# 注意：如果需要忽略所有target，下面两行可以删除
 !**/src/main/**/target/
 !**/src/test/**/target/
 
-### STS ###
+# IDE 配置文件
+## STS
 .apt_generated
 .classpath
 .factorypath
@@ -13,13 +17,14 @@ target/
 .springBeans
 .sts4-cache
 
-### IntelliJ IDEA ###
+## IntelliJ IDEA
 .idea
 *.iws
 *.iml
 *.ipr
+out/  # IntelliJ 的编译输出目录
 
-### NetBeans ###
+## NetBeans
 /nbproject/private/
 /nbbuild/
 /dist/
@@ -29,7 +34,29 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 
-### VS Code ###
+## VS Code
 .vscode/
 *.log
 *.stackdump
+
+# Java 编译产物（关键补充）
+*.class
+*.jar
+*.war
+*.ear
+*.jmod
+*.so
+*.dll
+*.dylib
+
+# 临时文件
+*.tmp
+*.bak
+*.swp
+*~
+
+# 操作系统文件
+.DS_Store  # macOS
+Thumbs.db  # Windows
+    
+*.class
