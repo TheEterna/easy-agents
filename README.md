@@ -1,8 +1,10 @@
-# Easy Agents - 多智能体编排框架
+
+![](https://theeterna.github.io/easy-agents-docs/logo.svg)
+# Easy-Agents - 轻量级 AI Agents 工作流编排
 
 ## 项目简介
 
-Easy Agents 是一个基于 Java 17 和 Spring Boot 的多智能体编排框架，旨在帮助开发者快速构建和管理多个 AI 智能体之间的协作。该框架提供了灵活的工作流编排、智能体节点管理和路由控制功能。
+Easy-Agents 是一个基于 Java 17 的轻量级工作流编排框架，用于拼装 AI/非 AI 节点并行/串行执行，提供阻塞与流式两种执行模式，以及可组合的路由与并发控制。核心不依赖 Spring Boot，可在任意 Java 应用中嵌入使用；如需大模型对话，可通过 `AIChatNode` 对接 Spring AI。
 
 ## 项目特性
 
@@ -15,118 +17,106 @@ Easy Agents 是一个基于 Java 17 和 Spring Boot 的多智能体编排框架�
 
 ## 技术栈
 
-- **Java**: 17+
-- **Spring Boot**: 3.4.4
-- **Maven**: 多模块项目管理
-- **IDE**: IntelliJ IDEA 支持
+- Java 17+
+- Reactor（Flux）用于流式事件
+- Maven 多模块
+- 可选：Spring AI（用于 `AIChatNode` 对话能力）
 
 ## 项目结构
 ```
 easy-agents/
-├── easy-agents-common/ # 公共模块
-│ ├── src/main/java/
-│ │ └── com/ai/agents/common/
-│ │ └── model/
-│ │ └── ValidationResult.java # 工作流校验结果
-│ └── pom.xml
-├── easy-agents-orchestrator/ # 编排器核心模块
-│ ├── src/main/java/
-│ │ └── com/ai/agents/orchestrator/
-│ │ ├── Main.java # 主程序入口
-│ │ ├── node/ # 节点类型定义
-│ │ │ ├── Node.java # 基础节点抽象类
-│ │ │ ├── AIChatNode.java # AI 聊天节点
-│ │ │ └── CodeNode.java # 代码执行节点
-│ │ ├── util/ # 工具类
-│ │ │ ├── EasyTree.java # 树形结构管理
-│ │ │ └── RouteOption.java # 路由选项
-│ │ └── workflow/ # 工作流管理
-│ │ └── WorkFlowManager.java # 工作流管理器
-│ ├── src/main/resources/
-│ │ └── application.yml # 应用配置
-│ └── pom.xml
-└── pom.xml # 父级 POM
+├── easy-agents-common/
+│   └── src/main/java/com/ai/agents/common/model/ValidationResult.java
+├── easy-agents-orchestrator/
+│   └── src/main/java/com/ai/agents/orchestrator/
+│       ├── node/
+│       │   ├── Node.java
+│       │   ├── AIChatNode.java
+│       │   └── CodeNode.java
+│       ├── util/
+│       │   ├── EasyTree.java
+│       │   └── RouteOption.java
+│       └── workflow/WorkFlowManager.java
+└── pom.xml
 ```
-
 
 ## 核心组件
 
-### 1. Node (节点)
-- **基础节点**: 所有智能体节点的抽象基类
-- **AI 聊天节点**: 处理 AI 对话和交互
-- **代码执行节点**: 执行自定义代码逻辑
+### 1. Node（节点）
+- `Node<IN>` 抽象基类，支持阻塞与流式两种执行通道。
+- `CodeNode<IN>`：以 Lambda 实现自定义处理逻辑。
+- `AIChatNode<IN>`：集成 Spring AI，支持对话与流式输出。
 
 ### 2. EasyTree (树形结构)
 - 支持多父节点的树形结构
 - 灵活的子节点管理
 - 路由选项配置
 
-### 3. WorkFlowManager (工作流管理器)
-- 工作流的创建、执行和监控
-- 节点间的数据传递
-- 执行结果管理
+### 3. WorkFlowManager（工作流管理器）
+- `setStartNode(root)` 设置起始节点（仅一次）。
+- `startBlocking()` 返回聚合结果池 `Map<UUID, NodeResult>`.
+- `startStreaming()` 返回事件流 `Flux<Object>`,边执行边发射。
+- 内部基于 `parentsLeft` 与 `allowedByAnyParent` 控制多父阻塞与放行。
 
-### 4. ValidationResult (校验结果)
-- 工作流执行状态校验
-- 警告信息收集
-- 执行结果反馈
+### 4. ValidationResult（校验结果）
+- 工作流构建/执行的状态与提示封装。
 
 ## 快速开始
 
-### 环境要求
-- JDK 17 或更高版本
-- Maven 3.6 或更高版本
-- IntelliJ IDEA (推荐)
+### 环境
+- JDK 17+
+- Maven 3.8+
 
-### 1. 克隆项目
+### 获取与构建
 ```bash
 git clone <repository-url>
 cd easy-agents
-```
-
-### 2. 构建项目
-```bash
-mvn clean install
-```
-
-### 3. 运行应用
-```bash
-cd easy-agents-orchestrator
-mvn spring-boot:run
+mvn -q -DskipTests package
 ```
 
 ## 使用示例
 
-### 创建简单工作流
+### 创建最小工作流（流式）
 ```java
-// 创建工作流管理器
-WorkFlowManager manager = WorkFlowManager.builder()
-    .name("示例工作流")
-    .build();
+import com.ai.agents.orchestrator.workflow.WorkFlowManager;
+import com.ai.agents.orchestrator.node.CodeNode;
+import reactor.core.publisher.Flux;
 
-// 添加节点
-AIChatNode chatNode = AIChatNode.builder()
-    .name("AI 聊天节点")
-    .build();
+WorkFlowManager<String> manager = WorkFlowManager.<String>builder().build();
 
-CodeNode<String> codeNode = CodeNode.<String>builder()
-    .name("代码执行节点")
-    .code(input -> "处理结果: " + input)
-    .build();
+CodeNode<String> start = CodeNode.<String>builder()
+    .inType(String.class)
+    .outType(String.class)
+    .code(in -> "Hello " + in)
+    .build("World");
 
-// 构建工作流
-manager.addNode(chatNode);
-manager.addNode(codeNode);
+manager.setStartNode(start); // 仅设置一次
+
+Flux<Object> flux = manager.startStreaming()
+    .doOnNext(System.out::println)
+    .doOnError(Throwable::printStackTrace)
+    .doOnComplete(() -> System.out.println("DONE"));
+
+flux.blockLast();
 ```
 
-### 配置路由选项
+### 条件路由（RouteOption）
 ```java
-RouteOption routeOption = RouteOption.builder()
-    .condition("input.length() > 10")
+import com.ai.agents.orchestrator.util.EasyTree;
+import com.ai.agents.orchestrator.util.RouteOption;
+
+EasyTree.TreeNode root = manager.setStartNode(start);
+
+RouteOption route = RouteOption
+    .when(pool -> ((String) pool.get(root.getId()).getValue()).length() > 5)
+    .and(pool -> true) // 可继续追加 and/or 条件
     .build();
 
-// 添加带路由的子节点
-treeNode.addChild(childNode, routeOption);
+root.addChild(CodeNode.<String>builder()
+        .outType(String.class)
+        .code(s -> s + " !")
+        .build(root.getId()),
+    route);
 ```
 
 ## 开发指南
@@ -136,33 +126,13 @@ treeNode.addChild(childNode, routeOption);
 2. 实现 `execute()` 方法
 3. 在 `WorkFlowManager` 中注册
 
-### 自定义路由逻辑
-1. 实现 `RouteOption` 接口
-2. 定义路由条件
-3. 在树形结构中应用
-
 ### 扩展工作流功能
 1. 继承 `WorkFlowManager`
 2. 添加新的管理方法
 3. 实现自定义的执行逻辑
 
 ## 配置说明
-
-### application.yml
-```yaml
-spring:
-  application:
-    name: easy-agents-orchestrator
-  
-server:
-  port: 8080
-
-# 自定义配置
-easy-agents:
-  workflow:
-    max-nodes: 1000
-    timeout: 30000
-```
+- 核心库零配置即可使用；如需 `AIChatNode`, 请按 Spring AI 官方文档配置模型提供方（API Key 等）。
 
 ## 测试
 
@@ -176,17 +146,10 @@ mvn test
 mvn test -Dtest=WorkFlowTests
 ```
 
-## 部署
-
-### 打包
-```bash
-mvn clean package
-```
-
-### 运行 JAR 文件
-```bash
-java -jar easy-agents-orchestrator/target/easy-agents-orchestrator-0.0.0-SNAPSHOT.jar
-```
+## 文档与示例
+- 文档站（VitePress）：`easy-agents-docs/`（单独仓库/目录）。
+  - 本地：`npm i && npm run docs:dev`
+  - 章节：架构概览、工作流与节点、流式执行、路由与并发、测试与调试、示例等。
 
 ## 贡献指南
 
@@ -203,7 +166,7 @@ java -jar easy-agents-orchestrator/target/easy-agents-orchestrator-0.0.0-SNAPSHO
 ## 联系方式
 
 - 作者: han
-- 项目链接: [https://github.com/yourusername/easy-agents](https://github.com/yourusername/easy-agents)
+- 项目链接: https://github.com/TheEterna/easy-agents
 
 ## 更新日志
 
@@ -211,7 +174,6 @@ java -jar easy-agents-orchestrator/target/easy-agents-orchestrator-0.0.0-SNAPSHO
 - 新增 `easy-agents-common` 公共模块
 - 实现 `ValidationResult` 工作流校验结果类
 - 重构 `EasyTree` 支持多父节点结构
-- 优化工作流节点管理
 - 更新项目依赖配置
 
 ---
