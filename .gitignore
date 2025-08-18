@@ -1,11 +1,10 @@
 # Maven 构建产物
 target/
+**/target/
 !**/.mvn/wrapper/maven-wrapper.jar  # 保留maven wrapper
 
 # 避免忽略子模块或特定目录下的target（如果有特殊需求）
-# 注意：如果需要忽略所有target，下面两行可以删除
-!**/src/main/**/target/
-!**/src/test/**/target/
+# 注意：如果需要忽略所有target，上面的两条已覆盖所有模块
 
 # IDE 配置文件
 ## STS
@@ -59,4 +58,3 @@ build/
 .DS_Store  # macOS
 Thumbs.db  # Windows
     
-*.class
